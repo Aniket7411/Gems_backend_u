@@ -126,6 +126,94 @@ router.get('/', async (req, res) => {
     }
 });
 
+// @route   GET /api/gems/search-suggestions
+// @desc    Get search suggestions for autocomplete (PUBLIC)
+// @access  Public
+router.get('/search-suggestions', async (req, res) => {
+    try {
+        const { q } = req.query;
+
+        if (!q || q.length < 2) {
+            return res.json({
+                success: true,
+                suggestions: []
+            });
+        }
+
+        // Search in name, hindiName, planet, and suitableFor
+        const gems = await Gem.find({
+            $or: [
+                { name: { $regex: q, $options: 'i' } },
+                { hindiName: { $regex: q, $options: 'i' } },
+                { planet: { $regex: q, $options: 'i' } },
+                { suitableFor: { $regex: q, $options: 'i' } }
+            ],
+            availability: true
+        })
+            .select('name hindiName planet suitableFor')
+            .limit(10);
+
+        // Create unique suggestions
+        const suggestions = [];
+        const added = new Set();
+
+        gems.forEach(gem => {
+            // Add gem name
+            if (gem.name.toLowerCase().includes(q.toLowerCase()) && !added.has(gem.name.toLowerCase())) {
+                suggestions.push({
+                    type: 'name',
+                    value: gem.name,
+                    label: `${gem.name} (${gem.hindiName})`,
+                    gemId: gem._id
+                });
+                added.add(gem.name.toLowerCase());
+            }
+
+            // Add planet
+            if (gem.planet.toLowerCase().includes(q.toLowerCase()) && !added.has(gem.planet.toLowerCase())) {
+                suggestions.push({
+                    type: 'planet',
+                    value: gem.planet,
+                    label: `Planet: ${gem.planet}`,
+                    icon: '🪐'
+                });
+                added.add(gem.planet.toLowerCase());
+            }
+
+            // Add zodiac signs from suitableFor
+            gem.suitableFor.forEach(zodiac => {
+                const zodiacLower = zodiac.toLowerCase();
+                const zodiacList = ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo',
+                    'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'];
+
+                if (zodiacList.includes(zodiacLower) &&
+                    zodiacLower.includes(q.toLowerCase()) &&
+                    !added.has(zodiacLower)) {
+                    suggestions.push({
+                        type: 'zodiac',
+                        value: zodiac,
+                        label: `Zodiac: ${zodiac}`,
+                        icon: '♈'
+                    });
+                    added.add(zodiacLower);
+                }
+            });
+        });
+
+        res.json({
+            success: true,
+            suggestions: suggestions.slice(0, 8) // Limit to 8 suggestions
+        });
+
+    } catch (error) {
+        console.error('Search suggestions error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during search suggestions'
+        });
+    }
+});
+
 // @route   GET /api/gems/my-gems
 // @desc    Get seller's own gems (SELLER ONLY)
 // @access  Private (Seller)
@@ -258,6 +346,94 @@ router.delete('/:id', protect, checkRole('seller'), async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Server error during gem deletion'
+        });
+    }
+});
+
+// @route   GET /api/gems/filter/zodiac/:zodiacSign
+// @desc    Get gems by zodiac sign (PUBLIC)
+// @access  Public
+router.get('/filter/zodiac/:zodiacSign', async (req, res) => {
+    try {
+        const { zodiacSign } = req.params;
+        const { page = 1, limit = 12 } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const gems = await Gem.find({
+            suitableFor: { $regex: zodiacSign, $options: 'i' },
+            availability: true
+        })
+            .populate('seller', 'name')
+            .skip(skip)
+            .limit(parseInt(limit))
+            .sort({ createdAt: -1 });
+
+        const count = await Gem.countDocuments({
+            suitableFor: { $regex: zodiacSign, $options: 'i' },
+            availability: true
+        });
+
+        const totalPages = Math.ceil(count / parseInt(limit));
+
+        res.json({
+            success: true,
+            count,
+            totalPages,
+            currentPage: parseInt(page),
+            zodiacSign,
+            gems
+        });
+
+    } catch (error) {
+        console.error('Get gems by zodiac error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during gems retrieval'
+        });
+    }
+});
+
+// @route   GET /api/gems/filter/planet/:planet
+// @desc    Get gems by planet (PUBLIC)
+// @access  Public
+router.get('/filter/planet/:planet', async (req, res) => {
+    try {
+        const { planet } = req.params;
+        const { page = 1, limit = 12 } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const gems = await Gem.find({
+            planet: { $regex: planet, $options: 'i' },
+            availability: true
+        })
+            .populate('seller', 'name')
+            .skip(skip)
+            .limit(parseInt(limit))
+            .sort({ createdAt: -1 });
+
+        const count = await Gem.countDocuments({
+            planet: { $regex: planet, $options: 'i' },
+            availability: true
+        });
+
+        const totalPages = Math.ceil(count / parseInt(limit));
+
+        res.json({
+            success: true,
+            count,
+            totalPages,
+            currentPage: parseInt(page),
+            planet,
+            gems
+        });
+
+    } catch (error) {
+        console.error('Get gems by planet error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during gems retrieval'
         });
     }
 });
