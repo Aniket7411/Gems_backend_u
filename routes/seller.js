@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Seller = require('../models/Seller');
+const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const { checkRole } = require('../middleware/role');
 
@@ -10,73 +11,190 @@ const router = express.Router();
 // @desc    Get seller profile
 // @access  Private (Seller only)
 router.get('/profile', protect, checkRole('seller'), async (req, res) => {
-    try {
-        const seller = await Seller.findOne({ user: req.user._id });
+  try {
+    let seller = await Seller.findOne({ user: req.user._id });
 
-        if (!seller) {
-            return res.status(404).json({
-                success: false,
-                message: 'Seller profile not found'
-            });
+    if (!seller) {
+      // Return empty profile structure if not found
+      return res.json({
+        success: true,
+        seller: {
+          user: req.user._id,
+          fullName: req.user.name || '',
+          email: req.user.email,
+          phone: '',
+          alternatePhone: '',
+          shopName: '',
+          shopType: '',
+          businessType: '',
+          yearEstablished: '',
+          address: {
+            street: '',
+            city: '',
+            state: '',
+            pincode: '',
+            country: 'India'
+          },
+          gstNumber: '',
+          panNumber: '',
+          aadharNumber: '',
+          bankName: '',
+          accountNumber: '',
+          ifscCode: '',
+          accountHolderName: '',
+          businessDescription: '',
+          specialization: [],
+          gemTypes: [],
+          website: '',
+          instagram: '',
+          facebook: '',
+          isVerified: false,
+          documentsUploaded: false
         }
-
-        res.json({
-            success: true,
-            seller
-        });
-
-    } catch (error) {
-        console.error('Get seller profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during profile retrieval'
-        });
+      });
     }
+
+    res.json({
+      success: true,
+      seller
+    });
+
+  } catch (error) {
+    console.error('Get seller profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during profile retrieval'
+    });
+  }
 });
 
 // @route   PUT /api/seller/profile
-// @desc    Update seller profile
+// @desc    Create or Update seller profile
 // @access  Private (Seller only)
 router.put('/profile', protect, checkRole('seller'), async (req, res) => {
-    try {
-        const seller = await Seller.findOne({ user: req.user._id });
+  try {
+    const {
+      fullName,
+      email,
+      phone,
+      alternatePhone,
+      shopName,
+      shopType,
+      businessType,
+      yearEstablished,
+      address,
+      gstNumber,
+      panNumber,
+      aadharNumber,
+      bankName,
+      accountNumber,
+      ifscCode,
+      accountHolderName,
+      businessDescription,
+      specialization,
+      gemTypes,
+      website,
+      instagram,
+      facebook,
+      documentsUploaded,
+      isVerified
+    } = req.body;
 
-        if (!seller) {
-            // Create new seller profile if doesn't exist
-            const newSeller = new Seller({
-                user: req.user._id,
-                email: req.user.email,
-                ...req.body
-            });
-            await newSeller.save();
+    // Find existing seller profile
+    let seller = await Seller.findOne({ user: req.user._id });
 
-            return res.json({
-                success: true,
-                message: 'Profile created successfully',
-                seller: newSeller
-            });
-        }
+    if (!seller) {
+      // Create new seller profile
+      seller = new Seller({
+        user: req.user._id,
+        fullName: fullName || req.user.name,
+        email: email || req.user.email,
+        phone,
+        alternatePhone,
+        shopName,
+        shopType,
+        businessType,
+        yearEstablished,
+        address,
+        gstNumber,
+        panNumber,
+        aadharNumber,
+        bankName,
+        accountNumber,
+        ifscCode,
+        accountHolderName,
+        businessDescription,
+        specialization,
+        gemTypes,
+        website,
+        instagram,
+        facebook,
+        documentsUploaded: documentsUploaded || false,
+        isVerified: isVerified || false
+      });
 
-        // Update existing seller profile
-        const updatedSeller = await Seller.findByIdAndUpdate(
-            seller._id,
-            req.body,
-            { new: true, runValidators: true }
-        );
+      await seller.save();
 
-        res.json({
-            success: true,
-            message: 'Profile updated successfully',
-            seller: updatedSeller
-        });
-
-    } catch (error) {
-        console.error('Update seller profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during profile update'
-        });
+      return res.json({
+        success: true,
+        message: 'Seller profile created successfully',
+        seller
+      });
     }
+
+    // Update existing seller profile
+    const updateData = {
+      fullName,
+      email,
+      phone,
+      alternatePhone,
+      shopName,
+      shopType,
+      businessType,
+      yearEstablished,
+      address,
+      gstNumber,
+      panNumber,
+      aadharNumber,
+      bankName,
+      accountNumber,
+      ifscCode,
+      accountHolderName,
+      businessDescription,
+      specialization,
+      gemTypes,
+      website,
+      instagram,
+      facebook,
+      documentsUploaded
+    };
+
+    // Remove undefined fields
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+
+    const updatedSeller = await Seller.findByIdAndUpdate(
+      seller._id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Seller profile updated successfully',
+      seller: updatedSeller
+    });
+
+  } catch (error) {
+    console.error('Update seller profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during profile update'
+    });
+  }
 });
 
 module.exports = router;

@@ -526,31 +526,55 @@ router.get('/me', protect, async (req, res) => {
 });
 
 // @route   GET /api/auth/profile
-// @desc    Get user profile
+// @desc    Get user profile (works for all roles)
 // @access  Private
 router.get('/profile', protect, async (req, res) => {
-    try {
-        const user = await User.findById(req.user._id).select('-password');
+  try {
+    const user = await User.findById(req.user._id).select('-password');
 
-        res.json({
-            success: true,
-            data: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
-                emailVerified: user.emailVerified,
-                createdAt: user.createdAt
-            }
+    // If seller, get seller profile too
+    if (user.role === 'seller') {
+      const Seller = require('../models/Seller');
+      const sellerProfile = await Seller.findOne({ user: user._id });
+      
+      if (sellerProfile) {
+        return res.json({
+          success: true,
+          data: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            emailVerified: user.emailVerified,
+            createdAt: user.createdAt,
+            sellerProfile
+          }
         });
-
-    } catch (error) {
-        console.error('Get profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during profile retrieval'
-        });
+      }
     }
+
+    res.json({
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        address: user.address,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during profile retrieval'
+    });
+  }
 });
 
 // @route   PUT /api/auth/profile
