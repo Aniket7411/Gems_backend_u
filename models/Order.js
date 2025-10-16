@@ -96,18 +96,53 @@ const orderSchema = new mongoose.Schema({
         type: String,
         enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
         default: 'pending'
+    },
+    cancelReason: {
+        type: String,
+        trim: true
+    },
+    cancelledAt: {
+        type: Date
     }
 }, {
     timestamps: true
 });
 
-// Generate order number before saving
+// Generate order number and reduce stock before saving
 orderSchema.pre('save', async function (next) {
+    // Generate order number
     if (!this.orderNumber) {
         const count = await mongoose.model('Order').countDocuments();
         this.orderNumber = `ORD-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
     }
+
+    // Reduce stock when order is created
+    if (this.isNew) {
+        const Gem = mongoose.model('Gem');
+        for (const item of this.items) {
+            await Gem.findByIdAndUpdate(item.gem, {
+                $inc: {
+                    stock: -item.quantity,
+                    sales: item.quantity
+                }
+            });
+        }
+    }
+
     next();
 });
+
+// Method to restore stock on cancellation
+orderSchema.methods.restoreStock = async function () {
+    const Gem = mongoose.model('Gem');
+    for (const item of this.items) {
+        await Gem.findByIdAndUpdate(item.gem, {
+            $inc: {
+                stock: item.quantity,
+                sales: -item.quantity
+            }
+        });
+    }
+};
 
 module.exports = mongoose.model('Order', orderSchema);

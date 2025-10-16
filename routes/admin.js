@@ -180,7 +180,10 @@ router.put('/sellers/:sellerId/verify', protect, checkRole('admin'), [
 
         const seller = await Seller.findByIdAndUpdate(
             req.params.sellerId,
-            { isVerified },
+            {
+                isVerified,
+                status: isVerified ? 'approved' : 'pending'
+            },
             { new: true }
         );
 
@@ -197,6 +200,7 @@ router.put('/sellers/:sellerId/verify', protect, checkRole('admin'), [
             seller: {
                 _id: seller._id,
                 isVerified: seller.isVerified,
+                status: seller.status,
                 updatedAt: seller.updatedAt
             }
         });
@@ -206,6 +210,64 @@ router.put('/sellers/:sellerId/verify', protect, checkRole('admin'), [
         res.status(500).json({
             success: false,
             message: 'Server error during verification update'
+        });
+    }
+});
+
+// @route   PUT /api/admin/sellers/:sellerId/status
+// @desc    Update seller status (approve/reject/suspend)
+// @access  Private (Admin only)
+router.put('/sellers/:sellerId/status', protect, checkRole('admin'), [
+    body('status').isIn(['pending', 'approved', 'rejected', 'suspended', 'active']).withMessage('Valid status required'),
+    body('suspensionReason').optional().isString().withMessage('Suspension reason must be a string')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const { status, suspensionReason } = req.body;
+
+        const updateData = {
+            status,
+            isVerified: status === 'approved' || status === 'active'
+        };
+
+        if (status === 'suspended') {
+            updateData.suspensionReason = suspensionReason;
+            updateData.suspendedAt = new Date();
+            updateData.suspendedBy = req.user._id;
+        }
+
+        const seller = await Seller.findByIdAndUpdate(
+            req.params.sellerId,
+            updateData,
+            { new: true }
+        );
+
+        if (!seller) {
+            return res.status(404).json({
+                success: false,
+                message: 'Seller not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: `Seller ${status} successfully`,
+            seller
+        });
+
+    } catch (error) {
+        console.error('Update seller status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during status update'
         });
     }
 });

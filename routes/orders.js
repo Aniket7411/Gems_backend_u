@@ -274,15 +274,15 @@ router.put('/:id/cancel', protect, checkRole('buyer'), async (req, res) => {
             });
         }
 
-        // Restore stock
-        for (const item of order.items) {
-            await Gem.findByIdAndUpdate(item.gem, {
-                $inc: { stock: item.quantity }
-            });
-        }
+        // Restore stock using the model method
+        await order.restoreStock();
 
         order.status = 'cancelled';
-        await order.save();
+        if (req.body.reason) {
+            order.cancelReason = req.body.reason;
+        }
+        order.cancelledAt = new Date();
+        await order.save({ validateBeforeSave: false }); // Skip pre-save hook
 
         res.json({
             success: true,

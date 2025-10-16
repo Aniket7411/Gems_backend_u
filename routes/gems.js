@@ -75,10 +75,14 @@ router.get('/', async (req, res) => {
             category = '',
             zodiac = '',
             planet = '',
+            seller = '',
             minPrice = '',
             maxPrice = '',
             sort = 'newest',
-            availability
+            availability,
+            inStock,
+            lowStock,
+            outOfStock
         } = req.query;
 
         // Build query object
@@ -117,9 +121,25 @@ router.get('/', async (req, res) => {
             if (maxPrice) query.price.$lte = Number(maxPrice);
         }
 
-        // 6. AVAILABILITY FILTER
+        // 6. SELLER FILTER
+        if (seller) {
+            query.seller = seller;
+        }
+
+        // 7. AVAILABILITY FILTER
         if (availability !== undefined) {
             query.availability = availability === 'true';
+        }
+
+        // 8. STOCK FILTERS
+        if (inStock === 'true') {
+            query.stock = { $gt: 0 };
+        }
+        if (lowStock === 'true') {
+            query.stock = { $lte: 5, $gt: 0 };
+        }
+        if (outOfStock === 'true') {
+            query.stock = 0;
         }
 
         // 7. BUILD SORT OPTION

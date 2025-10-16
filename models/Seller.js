@@ -131,6 +131,11 @@ const sellerSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    status: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected', 'suspended', 'active'],
+        default: 'pending'
+    },
     isVerified: {
         type: Boolean,
         default: false
@@ -138,6 +143,25 @@ const sellerSchema = new mongoose.Schema({
     documentsUploaded: {
         type: Boolean,
         default: false
+    },
+    suspensionReason: {
+        type: String,
+        trim: true
+    },
+    suspendedAt: {
+        type: Date
+    },
+    suspendedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    totalSales: {
+        type: Number,
+        default: 0
+    },
+    rating: {
+        type: Number,
+        default: 0
     }
 }, {
     timestamps: true

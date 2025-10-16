@@ -127,9 +127,39 @@ const gemSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: [true, 'Seller is required']
+    },
+    lowStockThreshold: {
+        type: Number,
+        default: 5
+    },
+    views: {
+        type: Number,
+        default: 0
+    },
+    sales: {
+        type: Number,
+        default: 0
+    },
+    rating: {
+        type: Number,
+        default: 0
+    },
+    reviews: {
+        type: Number,
+        default: 0
     }
 }, {
     timestamps: true
+});
+
+// Automatic availability update based on stock
+gemSchema.pre('save', function (next) {
+    if (this.stock === 0) {
+        this.availability = false;
+    } else if (this.stock > 0 && !this.availability) {
+        this.availability = true;
+    }
+    next();
 });
 
 // Index for better search performance
