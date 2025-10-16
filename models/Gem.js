@@ -45,10 +45,29 @@ const gemSchema = new mongoose.Schema({
         required: [true, 'Suitable for information is required'],
         default: []
     },
+    category: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'Category cannot be more than 100 characters']
+    },
+    whomToUse: {
+        type: [String],
+        default: []
+    },
     price: {
         type: Number,
         required: [true, 'Price is required'],
         min: [0, 'Price cannot be negative']
+    },
+    discount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Discount cannot be negative']
+    },
+    discountType: {
+        type: String,
+        enum: ['percentage', 'fixed'],
+        default: 'percentage'
     },
     sizeWeight: {
         type: Number,
@@ -65,6 +84,14 @@ const gemSchema = new mongoose.Schema({
         type: Number,
         default: 0,
         min: [0, 'Stock cannot be negative']
+    },
+    images: {
+        type: [String],
+        default: []
+    },
+    allImages: {
+        type: [String],
+        default: []
     },
     availability: {
         type: Boolean,

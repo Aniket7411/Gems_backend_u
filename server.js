@@ -14,6 +14,7 @@ const otpRoutes = require('./routes/otp');
 const adminRoutes = require('./routes/admin');
 const sellerRoutes = require('./routes/seller');
 const userRoutes = require('./routes/user');
+const wishlistRoutes = require('./routes/wishlist');
 
 const app = express();
 
@@ -121,6 +122,7 @@ app.use('/api/otp', otpRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/seller', sellerRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 
 console.log("testing");
 

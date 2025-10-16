@@ -63,65 +63,176 @@ router.post('/', protect, checkRole('seller'), [
 });
 
 // @route   GET /api/gems
-// @desc    Get all gems (PUBLIC)
+// @desc    Get all gems with filters, search, sort, and pagination (PUBLIC)
 // @access  Public
 router.get('/', async (req, res) => {
     try {
+        // Extract query parameters
         const {
             page = 1,
             limit = 12,
-            search,
-            planet,
-            minPrice,
-            maxPrice,
+            search = '',
+            category = '',
+            zodiac = '',
+            planet = '',
+            minPrice = '',
+            maxPrice = '',
+            sort = 'newest',
             availability
         } = req.query;
 
-        // Build filter object
-        const filter = {};
+        // Build query object
+        let query = {};
 
+        // 1. SEARCH FILTER (searches in name, hindiName, description)
         if (search) {
-            filter.$or = [
+            query.$or = [
                 { name: { $regex: search, $options: 'i' } },
                 { hindiName: { $regex: search, $options: 'i' } },
                 { description: { $regex: search, $options: 'i' } }
             ];
         }
-        if (planet) filter.planet = { $regex: planet, $options: 'i' };
-        if (minPrice || maxPrice) {
-            filter.price = {};
-            if (minPrice) filter.price.$gte = parseFloat(minPrice);
-            if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
+
+        // 2. CATEGORY FILTER (multiple categories comma-separated)
+        if (category) {
+            const categories = category.split(',').map(cat => cat.trim());
+            // Search in name field (gem names are like "Ruby", "Emerald", etc.)
+            query.name = { $in: categories };
         }
-        if (availability !== undefined) filter.availability = availability === 'true';
 
-        // Calculate pagination
-        const skip = (parseInt(page) - 1) * parseInt(limit);
+        // 3. ZODIAC FILTER (searches in suitableFor array)
+        if (zodiac) {
+            query.suitableFor = { $regex: zodiac, $options: 'i' };
+        }
 
-        // Get gems with pagination
-        const gems = await Gem.find(filter)
-            .populate('seller', 'name')
+        // 4. PLANET FILTER
+        if (planet) {
+            query.planet = { $regex: planet, $options: 'i' };
+        }
+
+        // 5. PRICE RANGE FILTER
+        if (minPrice || maxPrice) {
+            query.price = {};
+            if (minPrice) query.price.$gte = Number(minPrice);
+            if (maxPrice) query.price.$lte = Number(maxPrice);
+        }
+
+        // 6. AVAILABILITY FILTER
+        if (availability !== undefined) {
+            query.availability = availability === 'true';
+        }
+
+        // 7. BUILD SORT OPTION
+        let sortOption = {};
+        switch (sort) {
+            case 'oldest':
+                sortOption.createdAt = 1; // Ascending (oldest first)
+                break;
+            case 'price-low':
+                sortOption.price = 1; // Low to High
+                break;
+            case 'price-high':
+                sortOption.price = -1; // High to Low
+                break;
+            case 'name':
+                sortOption.name = 1; // A-Z
+                break;
+            case 'newest':
+            default:
+                sortOption.createdAt = -1; // Descending (newest first)
+                break;
+        }
+
+        // 8. PAGINATION
+        const skip = (Number(page) - 1) * Number(limit);
+        const total = await Gem.countDocuments(query);
+        const totalPages = Math.ceil(total / Number(limit));
+
+        // 9. FETCH GEMS with seller details
+        const Seller = require('../models/Seller');
+        const gems = await Gem.find(query)
+            .populate('seller', 'name email phone')
+            .sort(sortOption)
             .skip(skip)
-            .limit(parseInt(limit))
-            .sort({ createdAt: -1 });
+            .limit(Number(limit));
 
-        // Get total count
-        const count = await Gem.countDocuments(filter);
-        const totalPages = Math.ceil(count / parseInt(limit));
+        // 10. Get seller profiles for each gem
+        const gemsWithSellerInfo = await Promise.all(
+            gems.map(async (gem) => {
+                // Check if seller exists
+                if (!gem.seller || !gem.seller._id) {
+                    return {
+                        ...gem.toObject(),
+                        seller: {
+                            _id: null,
+                            fullName: 'Unknown Seller',
+                            shopName: 'Gem Store',
+                            isVerified: false
+                        }
+                    };
+                }
 
+                const sellerProfile = await Seller.findOne({ user: gem.seller._id });
+                return {
+                    ...gem.toObject(),
+                    seller: sellerProfile ? {
+                        _id: sellerProfile._id,
+                        fullName: sellerProfile.fullName,
+                        shopName: sellerProfile.shopName,
+                        isVerified: sellerProfile.isVerified
+                    } : {
+                        _id: gem.seller._id,
+                        fullName: gem.seller.name || 'Seller',
+                        shopName: 'Gem Store',
+                        isVerified: false
+                    }
+                };
+            })
+        );
+
+        // 11. SEND RESPONSE
         res.json({
             success: true,
-            count,
-            totalPages,
-            currentPage: parseInt(page),
-            gems
+            gems: gemsWithSellerInfo,
+            pagination: {
+                currentPage: Number(page),
+                totalPages,
+                totalItems: total,
+                limit: Number(limit),
+                hasNext: Number(page) < totalPages,
+                hasPrev: Number(page) > 1
+            }
         });
 
     } catch (error) {
         console.error('Get gems error:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error during gems retrieval'
+            message: 'Error fetching gems',
+            error: error.message
+        });
+    }
+});
+
+// @route   GET /api/gems/categories
+// @desc    Get unique gem categories/names for filter dropdown (PUBLIC)
+// @access  Public
+router.get('/categories', async (req, res) => {
+    try {
+        // Get distinct gem names (these act as categories)
+        const categories = await Gem.distinct('name');
+
+        res.json({
+            success: true,
+            data: categories.sort()
+        });
+
+    } catch (error) {
+        console.error('Get categories error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching categories',
+            error: error.message
         });
     }
 });
@@ -238,12 +349,23 @@ router.get('/my-gems', protect, checkRole('seller'), async (req, res) => {
 });
 
 // @route   GET /api/gems/:id
-// @desc    Get single gem by ID (PUBLIC)
+// @desc    Get single gem by ID with full details including seller info (PUBLIC)
 // @access  Public
 router.get('/:id', async (req, res) => {
     try {
-        const gem = await Gem.findById(req.params.id)
-            .populate('seller', 'name email');
+        const { id } = req.params;
+
+        // Validate MongoDB ObjectID
+        if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid gem ID format'
+            });
+        }
+
+        // Fetch gem with basic seller info
+        const gem = await Gem.findById(id)
+            .populate('seller', 'name email phone');
 
         if (!gem) {
             return res.status(404).json({
@@ -252,16 +374,46 @@ router.get('/:id', async (req, res) => {
             });
         }
 
+        // Get full seller profile
+        const Seller = require('../models/Seller');
+        const sellerProfile = await Seller.findOne({ user: gem.seller._id });
+
+        // Build gem response with full seller details
+        const gemResponse = {
+            ...gem.toObject(),
+            seller: sellerProfile ? {
+                _id: sellerProfile._id,
+                fullName: sellerProfile.fullName,
+                email: sellerProfile.email,
+                phone: sellerProfile.phone,
+                shopName: sellerProfile.shopName,
+                isVerified: sellerProfile.isVerified,
+                rating: 4.8 // Placeholder - can be calculated from reviews later
+            } : {
+                _id: gem.seller._id,
+                fullName: gem.seller.name,
+                email: gem.seller.email,
+                phone: gem.seller.phone,
+                shopName: 'Gem Store',
+                isVerified: false,
+                rating: 0
+            },
+            reviews: [], // Placeholder for future review implementation
+            averageRating: 0, // Placeholder
+            totalReviews: 0 // Placeholder
+        };
+
         res.json({
             success: true,
-            gem
+            gem: gemResponse
         });
 
     } catch (error) {
         console.error('Get gem error:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error during gem retrieval'
+            message: 'Server error during gem retrieval',
+            error: error.message
         });
     }
 });
