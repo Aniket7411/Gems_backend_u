@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema({
         trim: true
     },
     address: {
+        street: {
+            type: String,
+            trim: true
+        },
         addressLine1: {
             type: String,
             trim: true
@@ -50,7 +54,8 @@ const userSchema = new mongoose.Schema({
         },
         country: {
             type: String,
-            trim: true
+            trim: true,
+            default: 'India'
         }
     },
     password: {
