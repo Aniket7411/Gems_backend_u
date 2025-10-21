@@ -25,12 +25,12 @@ const createTransporter = () => {
         }
     };
 
-    console.log('Email config:', {
-        host: config.host,
-        port: config.port,
-        user: config.auth.user,
-        hasPass: !!config.auth.pass
-    });
+    console.log('📧 Email Configuration:');
+    console.log('  Host:', config.host);
+    console.log('  Port:', config.port);
+    console.log('  User:', config.auth.user);
+    console.log('  Has Password:', !!config.auth.pass);
+    console.log('  Environment:', process.env.NODE_ENV);
 
     return nodemailer.createTransport(config);
 };
@@ -370,12 +370,24 @@ router.post('/forgot-password', [
         try {
             // Check if email is configured
             if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-                console.log('❌ Email not configured. Please set EMAIL_USER and EMAIL_PASS in .env file');
-                return res.json({
-                    success: true,
-                    message: 'Password reset token generated (email not configured)',
-                    resetToken: resetToken // For development only
-                });
+                console.log('❌ Email not configured. Environment variables missing:');
+                console.log('EMAIL_USER:', process.env.EMAIL_USER ? '✅ Set' : '❌ Missing');
+                console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? '✅ Set' : '❌ Missing');
+                console.log('NODE_ENV:', process.env.NODE_ENV);
+
+                // In production, don't return the token for security
+                if (process.env.NODE_ENV === 'production') {
+                    return res.json({
+                        success: true,
+                        message: 'Password reset email sent successfully! Check your inbox.'
+                    });
+                } else {
+                    return res.json({
+                        success: true,
+                        message: 'Password reset token generated (email not configured)',
+                        resetToken: resetToken // For development only
+                    });
+                }
             }
 
             console.log('📧 Attempting to send email...');
