@@ -6,17 +6,33 @@ const nodemailer = require('nodemailer');
 
 const router = express.Router();
 
+// Email configuration debug (commented out for security)
+// console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
+// console.log('EMAIL_USER:', process.env.EMAIL_USER);
+
 // Create nodemailer transporter
 const createTransporter = () => {
-    return nodemailer.createTransporter({
+    const config = {
         host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-        port: process.env.EMAIL_PORT || 587,
-        secure: false,
+        port: parseInt(process.env.EMAIL_PORT) || 587,
+        secure: false, // true for 465, false for other ports
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
+        },
+        tls: {
+            rejectUnauthorized: false // Allow self-signed certificates
         }
+    };
+
+    console.log('Email config:', {
+        host: config.host,
+        port: config.port,
+        user: config.auth.user,
+        hasPass: !!config.auth.pass
     });
+
+    return nodemailer.createTransport(config);
 };
 
 // @route   POST /api/auth/signup
@@ -352,37 +368,92 @@ router.post('/forgot-password', [
 
         // Send reset email
         try {
+            // Check if email is configured
+            if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+                console.log('❌ Email not configured. Please set EMAIL_USER and EMAIL_PASS in .env file');
+                return res.json({
+                    success: true,
+                    message: 'Password reset token generated (email not configured)',
+                    resetToken: resetToken // For development only
+                });
+            }
+
+            console.log('📧 Attempting to send email...');
             const transporter = createTransporter();
             const resetUrl = `${req.protocol}://${req.get('host')}/api/auth/reset-password/${resetToken}`;
 
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER,
+            console.log('🔗 Reset URL:', resetUrl);
+
+            // Verify transporter connection
+            console.log('🔍 Verifying email connection...');
+            await transporter.verify();
+            console.log('✅ Email connection verified successfully!');
+
+            const mailOptions = {
+                from: `"Aurelane Gems" <${process.env.EMAIL_USER}>`,
                 to: email,
-                subject: 'Password Reset - Gem E-commerce',
+                subject: '🔐 Password Reset - Aurelane Gems',
                 html: `
-          <h2>Password Reset Request</h2>
-          <p>You requested a password reset. Click the link below to reset your password:</p>
-          <a href="${resetUrl}">Reset Password</a>
-          <p>This link will expire in 10 minutes.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        `
-            });
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                        <h1 style="margin: 0; font-size: 28px;">💎 Aurelane Gems</h1>
+                        <p style="margin: 10px 0 0 0; opacity: 0.9;">Password Reset Request</p>
+                    </div>
+                    
+                    <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px;">
+                        <h2 style="color: #333; margin-top: 0;">Hello!</h2>
+                        <p style="color: #666; line-height: 1.6;">You requested a password reset for your Aurelane Gems account. Click the button below to reset your password:</p>
+                        
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="${resetUrl}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold; font-size: 16px;">Reset My Password</a>
+                        </div>
+                        
+                        <p style="color: #666; font-size: 14px; margin: 20px 0;">Or copy and paste this link in your browser:</p>
+                        <p style="background: #e9ecef; padding: 10px; border-radius: 5px; word-break: break-all; font-family: monospace; font-size: 12px; color: #495057;">${resetUrl}</p>
+                        
+                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                            <p style="margin: 0; color: #856404; font-size: 14px;"><strong>⏰ Important:</strong> This link will expire in 10 minutes for security reasons.</p>
+                        </div>
+                        
+                        <p style="color: #666; font-size: 14px; margin: 20px 0 0 0;">If you didn't request this password reset, please ignore this email. Your password will remain unchanged.</p>
+                        
+                        <hr style="border: none; border-top: 1px solid #dee2e6; margin: 30px 0;">
+                        <p style="color: #999; font-size: 12px; text-align: center; margin: 0;">© 2025 Aurelane Gems. All rights reserved.</p>
+                    </div>
+                </div>
+                `
+            };
+
+            console.log('📤 Sending email to:', email);
+            const info = await transporter.sendMail(mailOptions);
+            console.log('✅ Email sent successfully! Message ID:', info.messageId);
 
             res.json({
                 success: true,
-                message: 'Password reset email sent successfully'
+                message: 'Password reset email sent successfully! Check your inbox.'
             });
         } catch (emailError) {
-            console.error('Email sending failed:', emailError);
+            console.error('❌ Email sending failed:', emailError);
 
             // Reset the token fields if email fails
             user.resetPasswordToken = undefined;
             user.resetPasswordExpire = undefined;
             await user.save();
 
+            // In development, still return success with token
+            if (process.env.NODE_ENV === 'development') {
+                console.log('🔧 Development mode: Returning token despite email failure');
+                return res.json({
+                    success: true,
+                    message: 'Password reset token generated (email failed - check console for details)',
+                    resetToken: resetToken, // For development only
+                    error: emailError.message
+                });
+            }
+
             res.status(500).json({
                 success: false,
-                message: 'Failed to send reset email'
+                message: 'Failed to send reset email. Please try again later.'
             });
         }
 
@@ -396,7 +467,7 @@ router.post('/forgot-password', [
 });
 
 // @route   POST /api/auth/reset-password/:token
-// @desc    Reset password
+// @desc    Reset password (POST method)
 // @access  Public
 router.post('/reset-password/:token', [
     body('password')
@@ -447,6 +518,109 @@ router.post('/reset-password/:token', [
 
     } catch (error) {
         console.error('Reset password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during password reset'
+        });
+    }
+});
+
+// @route   GET /api/auth/reset-password/:token
+// @desc    Verify reset token and redirect to frontend
+// @access  Public
+router.get('/reset-password/:token', async (req, res) => {
+    try {
+        const resetToken = req.params.token;
+        console.log('🔍 Verifying reset token:', resetToken);
+
+        // Hash the token to compare with stored hash
+        const hashedToken = require('crypto')
+            .createHash('sha256')
+            .update(resetToken)
+            .digest('hex');
+
+        const user = await User.findOne({
+            resetPasswordToken: hashedToken,
+            resetPasswordExpire: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            console.log('❌ Invalid or expired token');
+            // Redirect to frontend with error
+            return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password?error=invalid_token`);
+        }
+
+        console.log('✅ Valid token for user:', user.email);
+        // Redirect to frontend reset password page with token
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`);
+
+    } catch (error) {
+        console.error('❌ Token verification error:', error);
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password?error=server_error`);
+    }
+});
+
+// @route   PUT /api/auth/reset-password/:token
+// @desc    Reset password (PUT method - for frontend compatibility)
+// @access  Public
+router.put('/reset-password/:token', [
+    body('password')
+        .isLength({ min: 6 })
+        .withMessage('Password must be at least 6 characters long')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const { password } = req.body;
+        const resetToken = req.params.token;
+
+        console.log('🔄 Processing password reset for token:', resetToken);
+
+        // Hash the token to compare with stored hash
+        const hashedToken = require('crypto')
+            .createHash('sha256')
+            .update(resetToken)
+            .digest('hex');
+
+        console.log('🔍 Looking for user with hashed token:', hashedToken);
+
+        const user = await User.findOne({
+            resetPasswordToken: hashedToken,
+            resetPasswordExpire: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            console.log('❌ No user found with valid token');
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or expired reset token'
+            });
+        }
+
+        console.log('✅ User found:', user.email);
+
+        // Set new password
+        user.password = password;
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpire = undefined;
+        await user.save();
+
+        console.log('✅ Password reset successful for:', user.email);
+
+        res.json({
+            success: true,
+            message: 'Password reset successfully'
+        });
+
+    } catch (error) {
+        console.error('❌ Reset password error:', error);
         res.status(500).json({
             success: false,
             message: 'Server error during password reset'
@@ -529,52 +703,52 @@ router.get('/me', protect, async (req, res) => {
 // @desc    Get user profile (works for all roles)
 // @access  Private
 router.get('/profile', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select('-password');
+    try {
+        const user = await User.findById(req.user._id).select('-password');
 
-    // If seller, get seller profile too
-    if (user.role === 'seller') {
-      const Seller = require('../models/Seller');
-      const sellerProfile = await Seller.findOne({ user: user._id });
-      
-      if (sellerProfile) {
-        return res.json({
-          success: true,
-          data: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-            role: user.role,
-            emailVerified: user.emailVerified,
-            createdAt: user.createdAt,
-            sellerProfile
-          }
+        // If seller, get seller profile too
+        if (user.role === 'seller') {
+            const Seller = require('../models/Seller');
+            const sellerProfile = await Seller.findOne({ user: user._id });
+
+            if (sellerProfile) {
+                return res.json({
+                    success: true,
+                    data: {
+                        id: user._id,
+                        name: user.name,
+                        email: user.email,
+                        phone: user.phone,
+                        role: user.role,
+                        emailVerified: user.emailVerified,
+                        createdAt: user.createdAt,
+                        sellerProfile
+                    }
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            data: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                role: user.role,
+                address: user.address,
+                emailVerified: user.emailVerified,
+                createdAt: user.createdAt
+            }
         });
-      }
+
+    } catch (error) {
+        console.error('Get profile error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during profile retrieval'
+        });
     }
-
-    res.json({
-      success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        address: user.address,
-        emailVerified: user.emailVerified,
-        createdAt: user.createdAt
-      }
-    });
-
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during profile retrieval'
-    });
-  }
 });
 
 // @route   PUT /api/auth/profile
