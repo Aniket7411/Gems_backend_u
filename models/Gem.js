@@ -162,11 +162,24 @@ gemSchema.pre('save', function (next) {
     next();
 });
 
-// Index for better search performance
-gemSchema.index({ name: 'text', description: 'text', planet: 'text' });
-gemSchema.index({ planet: 1 });
-gemSchema.index({ price: 1 });
-gemSchema.index({ availability: 1 });
-gemSchema.index({ seller: 1 });
+// Indexes for better search performance
+// Text search index (for full-text search)
+gemSchema.index({ name: 'text', description: 'text', hindiName: 'text', planet: 'text', color: 'text' });
+
+// Single field indexes for filtering and sorting
+gemSchema.index({ name: 1 }); // Case-insensitive search
+gemSchema.index({ hindiName: 1 }); // Hindi name search
+gemSchema.index({ planet: 1 }); // Planet filter
+gemSchema.index({ color: 1 }); // Color filter
+gemSchema.index({ price: 1 }); // Price sorting
+gemSchema.index({ availability: 1 }); // Availability filter
+gemSchema.index({ seller: 1 }); // Seller filter
+gemSchema.index({ createdAt: -1 }); // Newest first sorting
+gemSchema.index({ stock: 1 }); // Stock filter
+
+// Compound indexes for common query patterns
+gemSchema.index({ availability: 1, name: 1 }); // Available gems by name
+gemSchema.index({ availability: 1, price: 1 }); // Available gems by price
+gemSchema.index({ availability: 1, planet: 1 }); // Available gems by planet
 
 module.exports = mongoose.model('Gem', gemSchema);

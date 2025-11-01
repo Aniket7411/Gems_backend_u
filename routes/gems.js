@@ -88,12 +88,15 @@ router.get('/', async (req, res) => {
         // Build query object
         let query = {};
 
-        // 1. SEARCH FILTER (searches in name, hindiName, description)
-        if (search) {
+        // 1. SEARCH FILTER (searches in name, hindiName, description, planet, color)
+        if (search && search.trim()) {
+            const searchTerm = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Sanitize regex special characters
             query.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { hindiName: { $regex: search, $options: 'i' } },
-                { description: { $regex: search, $options: 'i' } }
+                { name: { $regex: searchTerm, $options: 'i' } },
+                { hindiName: { $regex: searchTerm, $options: 'i' } },
+                { description: { $regex: searchTerm, $options: 'i' } },
+                { planet: { $regex: searchTerm, $options: 'i' } },
+                { color: { $regex: searchTerm, $options: 'i' } }
             ];
         }
 
@@ -210,13 +213,27 @@ router.get('/', async (req, res) => {
             })
         );
 
-        // 11. SEND RESPONSE
+        // 11. SEND RESPONSE (match frontend expected format)
         res.json({
             success: true,
+            data: {
+                gems: gemsWithSellerInfo,
+                pagination: {
+                    currentPage: Number(page),
+                    totalPages,
+                    totalGems: total,
+                    totalItems: total, // Alias for backward compatibility
+                    limit: Number(limit),
+                    hasNext: Number(page) < totalPages,
+                    hasPrev: Number(page) > 1
+                }
+            },
+            // Also include direct properties for backward compatibility
             gems: gemsWithSellerInfo,
             pagination: {
                 currentPage: Number(page),
                 totalPages,
+                totalGems: total,
                 totalItems: total,
                 limit: Number(limit),
                 hasNext: Number(page) < totalPages,
@@ -262,46 +279,51 @@ router.get('/categories', async (req, res) => {
 // @access  Public
 router.get('/search-suggestions', async (req, res) => {
     try {
-        const { q } = req.query;
+        const searchTerm = req.query.q || req.query.search || '';
 
-        if (!q || q.length < 2) {
+        if (!searchTerm || searchTerm.trim().length < 2) {
             return res.json({
                 success: true,
                 suggestions: []
             });
         }
 
-        // Search in name, hindiName, planet, and suitableFor
+        const sanitizedSearch = searchTerm.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        // Search in name, hindiName, planet, color, and suitableFor (optimized for autocomplete)
         const gems = await Gem.find({
             $or: [
-                { name: { $regex: q, $options: 'i' } },
-                { hindiName: { $regex: q, $options: 'i' } },
-                { planet: { $regex: q, $options: 'i' } },
-                { suitableFor: { $regex: q, $options: 'i' } }
+                { name: { $regex: sanitizedSearch, $options: 'i' } },
+                { hindiName: { $regex: sanitizedSearch, $options: 'i' } },
+                { planet: { $regex: sanitizedSearch, $options: 'i' } },
+                { color: { $regex: sanitizedSearch, $options: 'i' } }
             ],
             availability: true
         })
-            .select('name hindiName planet suitableFor')
-            .limit(10);
+            .select('name hindiName planet color suitableFor')
+            .limit(10)
+            .lean(); // Use lean() for better performance
 
         // Create unique suggestions
         const suggestions = [];
         const added = new Set();
 
+        const searchLower = sanitizedSearch.toLowerCase();
+
         gems.forEach(gem => {
             // Add gem name
-            if (gem.name.toLowerCase().includes(q.toLowerCase()) && !added.has(gem.name.toLowerCase())) {
+            if (gem.name.toLowerCase().includes(searchLower) && !added.has(gem.name.toLowerCase())) {
                 suggestions.push({
                     type: 'name',
                     value: gem.name,
-                    label: `${gem.name} (${gem.hindiName})`,
+                    label: `${gem.name}${gem.hindiName ? ` (${gem.hindiName})` : ''}`,
                     gemId: gem._id
                 });
                 added.add(gem.name.toLowerCase());
             }
 
             // Add planet
-            if (gem.planet.toLowerCase().includes(q.toLowerCase()) && !added.has(gem.planet.toLowerCase())) {
+            if (gem.planet && gem.planet.toLowerCase().includes(searchLower) && !added.has(gem.planet.toLowerCase())) {
                 suggestions.push({
                     type: 'planet',
                     value: gem.planet,
@@ -311,24 +333,37 @@ router.get('/search-suggestions', async (req, res) => {
                 added.add(gem.planet.toLowerCase());
             }
 
-            // Add zodiac signs from suitableFor
-            gem.suitableFor.forEach(zodiac => {
-                const zodiacLower = zodiac.toLowerCase();
-                const zodiacList = ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo',
-                    'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'];
+            // Add color
+            if (gem.color && gem.color.toLowerCase().includes(searchLower) && !added.has(gem.color.toLowerCase())) {
+                suggestions.push({
+                    type: 'color',
+                    value: gem.color,
+                    label: `Color: ${gem.color}`,
+                    icon: '🎨'
+                });
+                added.add(gem.color.toLowerCase());
+            }
 
-                if (zodiacList.includes(zodiacLower) &&
-                    zodiacLower.includes(q.toLowerCase()) &&
-                    !added.has(zodiacLower)) {
-                    suggestions.push({
-                        type: 'zodiac',
-                        value: zodiac,
-                        label: `Zodiac: ${zodiac}`,
-                        icon: '♈'
-                    });
-                    added.add(zodiacLower);
-                }
-            });
+            // Add zodiac signs from suitableFor
+            if (gem.suitableFor && Array.isArray(gem.suitableFor)) {
+                gem.suitableFor.forEach(zodiac => {
+                    const zodiacLower = zodiac.toLowerCase();
+                    const zodiacList = ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo',
+                        'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'];
+
+                    if (zodiacList.includes(zodiacLower) &&
+                        zodiacLower.includes(searchLower) &&
+                        !added.has(zodiacLower)) {
+                        suggestions.push({
+                            type: 'zodiac',
+                            value: zodiac,
+                            label: `Zodiac: ${zodiac}`,
+                            icon: '♈'
+                        });
+                        added.add(zodiacLower);
+                    }
+                });
+            }
         });
 
         res.json({

@@ -370,7 +370,7 @@ router.post('/forgot-password', [
         try {
             // Check if email is configured
             if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-                console.log('❌ Email not configured. Environment variables missing:');
+                console.log('❌Email not configured. Environment variables missing:');
                 console.log('EMAIL_USER:', process.env.EMAIL_USER ? '✅ Set' : '❌ Missing');
                 console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? '✅ Set' : '❌ Missing');
                 console.log('NODE_ENV:', process.env.NODE_ENV);
