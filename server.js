@@ -15,6 +15,7 @@ const adminRoutes = require('./routes/admin');
 const sellerRoutes = require('./routes/seller');
 const userRoutes = require('./routes/user');
 const wishlistRoutes = require('./routes/wishlist');
+const reviewRoutes = require('./routes/reviews');
 
 const app = express();
 
@@ -123,6 +124,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/seller', sellerRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 console.log("testing");
 

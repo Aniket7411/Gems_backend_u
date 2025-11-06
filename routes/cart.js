@@ -7,10 +7,10 @@ const { checkRole } = require('../middleware/role');
 
 const router = express.Router();
 
-// @route   POST /api/cart
+// @route   POST /api/cart/add
 // @desc    Add item to cart (BUYER ONLY)
 // @access  Private (Buyer)
-router.post('/', protect, checkRole('buyer'), [
+router.post('/add', protect, checkRole('buyer'), [
     body('gemId').isMongoId().withMessage('Valid gem ID is required'),
     body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1')
 ], async (req, res) => {
@@ -82,10 +82,10 @@ router.post('/', protect, checkRole('buyer'), [
         res.json({
             success: true,
             message: 'Item added to cart',
-            cart: {
-                items: cart.items,
-                totalItems,
-                totalPrice
+            cartItem: {
+                _id: cart.items[cart.items.length - 1]._id,
+                gemId: gemId,
+                quantity: existingItemIndex > -1 ? cart.items[existingItemIndex].quantity : quantity
             }
         });
 
@@ -118,16 +118,21 @@ router.get('/', protect, checkRole('buyer'), async (req, res) => {
         }
 
         // Calculate totals
-        const totalItems = cart.items.reduce((sum, item) => sum + item.quantity, 0);
         const totalPrice = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
         res.json({
             success: true,
-            cart: {
-                items: cart.items,
-                totalItems,
-                totalPrice
-            }
+            cart: cart.items.map(item => ({
+                _id: item._id,
+                gem: {
+                    _id: item.gem._id,
+                    name: item.gem.name,
+                    price: item.gem.price,
+                    images: item.gem.heroImage ? [item.gem.heroImage] : []
+                },
+                quantity: item.quantity
+            })),
+            total: totalPrice
         });
 
     } catch (error) {
@@ -139,10 +144,10 @@ router.get('/', protect, checkRole('buyer'), async (req, res) => {
     }
 });
 
-// @route   PUT /api/cart/:itemId
-// @desc    Update cart item quantity
+// @route   PUT /api/cart/update/:gemId
+// @desc    Update cart item quantity by gemId
 // @access  Private (Buyer)
-router.put('/:itemId', protect, checkRole('buyer'), [
+router.put('/update/:gemId', protect, checkRole('buyer'), [
     body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1')
 ], async (req, res) => {
     try {
@@ -156,7 +161,7 @@ router.put('/:itemId', protect, checkRole('buyer'), [
         }
 
         const { quantity } = req.body;
-        const { itemId } = req.params;
+        const { gemId } = req.params;
 
         const cart = await Cart.findOne({ user: req.user._id });
 
@@ -167,7 +172,7 @@ router.put('/:itemId', protect, checkRole('buyer'), [
             });
         }
 
-        const itemIndex = cart.items.findIndex(item => item._id.toString() === itemId);
+        const itemIndex = cart.items.findIndex(item => item.gem.toString() === gemId);
 
         if (itemIndex === -1) {
             return res.status(404).json({
@@ -177,7 +182,7 @@ router.put('/:itemId', protect, checkRole('buyer'), [
         }
 
         // Check gem availability
-        const gem = await Gem.findById(cart.items[itemIndex].gem);
+        const gem = await Gem.findById(gemId);
         if (!gem || !gem.availability || gem.stock < quantity) {
             return res.status(400).json({
                 success: false,
@@ -190,7 +195,7 @@ router.put('/:itemId', protect, checkRole('buyer'), [
 
         res.json({
             success: true,
-            message: 'Cart item updated'
+            message: 'Cart updated successfully'
         });
 
     } catch (error) {
@@ -202,12 +207,12 @@ router.put('/:itemId', protect, checkRole('buyer'), [
     }
 });
 
-// @route   DELETE /api/cart/:itemId
-// @desc    Remove item from cart
+// @route   DELETE /api/cart/remove/:gemId
+// @desc    Remove item from cart by gemId
 // @access  Private (Buyer)
-router.delete('/:itemId', protect, checkRole('buyer'), async (req, res) => {
+router.delete('/remove/:gemId', protect, checkRole('buyer'), async (req, res) => {
     try {
-        const { itemId } = req.params;
+        const { gemId } = req.params;
 
         const cart = await Cart.findOne({ user: req.user._id });
 
@@ -218,7 +223,7 @@ router.delete('/:itemId', protect, checkRole('buyer'), async (req, res) => {
             });
         }
 
-        cart.items = cart.items.filter(item => item._id.toString() !== itemId);
+        cart.items = cart.items.filter(item => item.gem.toString() !== gemId);
         await cart.save();
 
         res.json({
@@ -235,10 +240,10 @@ router.delete('/:itemId', protect, checkRole('buyer'), async (req, res) => {
     }
 });
 
-// @route   DELETE /api/cart
+// @route   DELETE /api/cart/clear
 // @desc    Clear cart
 // @access  Private (Buyer)
-router.delete('/', protect, checkRole('buyer'), async (req, res) => {
+router.delete('/clear', protect, checkRole('buyer'), async (req, res) => {
     try {
         const cart = await Cart.findOne({ user: req.user._id });
 
@@ -254,7 +259,7 @@ router.delete('/', protect, checkRole('buyer'), async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Cart cleared'
+            message: 'Cart cleared successfully'
         });
 
     } catch (error) {

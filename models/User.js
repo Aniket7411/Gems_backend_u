@@ -58,6 +58,48 @@ const userSchema = new mongoose.Schema({
             default: 'India'
         }
     },
+    // Multiple addresses support
+    addresses: [{
+        label: {
+            type: String,
+            trim: true,
+            default: 'Home'
+        },
+        addressLine1: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        addressLine2: {
+            type: String,
+            trim: true
+        },
+        city: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        state: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        pincode: {
+            type: String,
+            required: true,
+            trim: true,
+            match: [/^\d{6}$/, 'Pincode must be 6 digits']
+        },
+        country: {
+            type: String,
+            trim: true,
+            default: 'India'
+        },
+        isPrimary: {
+            type: Boolean,
+            default: false
+        }
+    }],
     password: {
         type: String,
         required: [true, 'Password is required'],

@@ -50,6 +50,11 @@ router.post('/signup', [
     body('password')
         .isLength({ min: 6 })
         .withMessage('Password must be at least 6 characters long'),
+    body('phoneNumber')
+        .optional()
+        .trim()
+        .matches(/^\d{10}$/)
+        .withMessage('Phone number must be 10 digits'),
     body('role')
         .optional()
         .isIn(['buyer', 'seller'])
@@ -65,7 +70,7 @@ router.post('/signup', [
             });
         }
 
-        const { name, email, password, role } = req.body;
+        const { name, email, password, phoneNumber, role } = req.body;
 
         // Check if user already exists
         const existingUser = await User.findOne({ email });
@@ -82,6 +87,8 @@ router.post('/signup', [
             name,
             email,
             password,
+            phoneNumber: phoneNumber || '',
+            phone: phoneNumber || '',
             role: role || 'buyer'
         });
 
@@ -98,6 +105,7 @@ router.post('/signup', [
                 _id: user._id,
                 name: user.name,
                 email: user.email,
+                phoneNumber: user.phoneNumber || '',
                 role: user.role
             }
         });

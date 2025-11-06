@@ -433,6 +433,82 @@ router.get('/:id', async (req, res) => {
         const Seller = require('../models/Seller');
         const sellerProfile = await Seller.findOne({ user: gem.seller._id });
 
+        // Fetch related products
+        // Priority: 1. Same name, 2. Same planet, 3. Same color, 4. Similar price range
+        const relatedProductsQuery = {
+            _id: { $ne: gem._id }, // Exclude current gem
+            availability: true // Only available products
+        };
+
+        // Build query for related products with priority
+        const priceRange = gem.price * 0.3; // 30% price range
+        const minPrice = gem.price - priceRange;
+        const maxPrice = gem.price + priceRange;
+
+        // Try to find related products with multiple criteria
+        let relatedProducts = await Gem.find({
+            ...relatedProductsQuery,
+            $or: [
+                { name: gem.name }, // Same gem name (highest priority)
+                { planet: gem.planet }, // Same planet
+                { color: gem.color }, // Same color
+                { price: { $gte: minPrice, $lte: maxPrice } } // Similar price range
+            ]
+        })
+            .populate('seller', 'name email phone')
+            .sort({ createdAt: -1 })
+            .limit(8)
+            .lean();
+
+        // If we don't have enough related products, fill with any available gems
+        if (relatedProducts.length < 6) {
+            const additionalProducts = await Gem.find({
+                ...relatedProductsQuery,
+                _id: { $nin: [...relatedProducts.map(p => p._id), gem._id] }
+            })
+                .populate('seller', 'name email phone')
+                .sort({ createdAt: -1 })
+                .limit(8 - relatedProducts.length)
+                .lean();
+            
+            relatedProducts = [...relatedProducts, ...additionalProducts];
+        }
+
+        // Format related products with seller info (similar to main gem format)
+        const relatedProductsFormatted = await Promise.all(
+            relatedProducts.map(async (relatedGem) => {
+                const relatedSellerProfile = await Seller.findOne({ user: relatedGem.seller._id });
+                return {
+                    _id: relatedGem._id,
+                    name: relatedGem.name,
+                    hindiName: relatedGem.hindiName,
+                    planet: relatedGem.planet,
+                    color: relatedGem.color,
+                    price: relatedGem.price,
+                    discount: relatedGem.discount,
+                    discountType: relatedGem.discountType,
+                    heroImage: relatedGem.heroImage,
+                    images: relatedGem.images,
+                    stock: relatedGem.stock,
+                    availability: relatedGem.availability,
+                    rating: relatedGem.rating,
+                    reviews: relatedGem.reviews,
+                    seller: relatedSellerProfile ? {
+                        _id: relatedSellerProfile._id,
+                        fullName: relatedSellerProfile.fullName,
+                        shopName: relatedSellerProfile.shopName,
+                        isVerified: relatedSellerProfile.isVerified
+                    } : {
+                        _id: relatedGem.seller._id,
+                        fullName: relatedGem.seller.name || 'Seller',
+                        shopName: 'Gem Store',
+                        isVerified: false
+                    },
+                    createdAt: relatedGem.createdAt
+                };
+            })
+        );
+
         // Build gem response with full seller details
         const gemResponse = {
             ...gem.toObject(),
@@ -460,7 +536,8 @@ router.get('/:id', async (req, res) => {
 
         res.json({
             success: true,
-            gem: gemResponse
+            gem: gemResponse,
+            relatedProducts: relatedProductsFormatted
         });
 
     } catch (error) {

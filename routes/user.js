@@ -129,5 +129,281 @@ router.put('/profile', protect, async (req, res) => {
     }
 });
 
+// @route   GET /api/user/addresses
+// @desc    Get all addresses for current user
+// @access  Private
+router.get('/addresses', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select('addresses');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            addresses: user.addresses || []
+        });
+
+    } catch (error) {
+        console.error('Get addresses error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Server error during addresses retrieval'
+        });
+    }
+});
+
+// @route   POST /api/user/addresses
+// @desc    Add a new address
+// @access  Private
+router.post('/addresses', protect, [
+    body('label').optional().trim(),
+    body('addressLine1').trim().notEmpty().withMessage('Address line 1 is required'),
+    body('addressLine2').optional().trim(),
+    body('city').trim().notEmpty().withMessage('City is required'),
+    body('state').trim().notEmpty().withMessage('State is required'),
+    body('pincode').trim().matches(/^\d{6}$/).withMessage('Pincode must be 6 digits'),
+    body('country').optional().trim(),
+    body('isPrimary').optional().isBoolean()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const { label, addressLine1, addressLine2, city, state, pincode, country, isPrimary } = req.body;
+
+        const user = await User.findById(req.user._id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // If setting as primary, unset other primary addresses
+        if (isPrimary) {
+            user.addresses.forEach(addr => {
+                addr.isPrimary = false;
+            });
+        }
+
+        const newAddress = {
+            label: label || 'Home',
+            addressLine1,
+            addressLine2: addressLine2 || '',
+            city,
+            state,
+            pincode,
+            country: country || 'India',
+            isPrimary: isPrimary || false
+        };
+
+        // If this is the first address, make it primary
+        if (user.addresses.length === 0) {
+            newAddress.isPrimary = true;
+        }
+
+        user.addresses.push(newAddress);
+        await user.save();
+
+        const addedAddress = user.addresses[user.addresses.length - 1];
+
+        res.status(201).json({
+            success: true,
+            message: 'Address added successfully',
+            address: addedAddress
+        });
+
+    } catch (error) {
+        console.error('Add address error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Server error during address addition'
+        });
+    }
+});
+
+// @route   PUT /api/user/addresses/:addressId
+// @desc    Update an existing address
+// @access  Private
+router.put('/addresses/:addressId', protect, [
+    body('label').optional().trim(),
+    body('addressLine1').optional().trim(),
+    body('addressLine2').optional().trim(),
+    body('city').optional().trim(),
+    body('state').optional().trim(),
+    body('pincode').optional().trim().matches(/^\d{6}$/).withMessage('Pincode must be 6 digits'),
+    body('country').optional().trim(),
+    body('isPrimary').optional().isBoolean()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const { addressId } = req.params;
+        const updates = req.body;
+
+        const user = await User.findById(req.user._id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const addressIndex = user.addresses.findIndex(
+            addr => addr._id.toString() === addressId
+        );
+
+        if (addressIndex === -1) {
+            return res.status(404).json({
+                success: false,
+                message: 'Address not found'
+            });
+        }
+
+        // If setting as primary, unset other primary addresses
+        if (updates.isPrimary === true) {
+            user.addresses.forEach(addr => {
+                addr.isPrimary = false;
+            });
+        }
+
+        // Update address fields
+        Object.keys(updates).forEach(key => {
+            if (updates[key] !== undefined) {
+                user.addresses[addressIndex][key] = updates[key];
+            }
+        });
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Address updated successfully',
+            address: user.addresses[addressIndex]
+        });
+
+    } catch (error) {
+        console.error('Update address error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Server error during address update'
+        });
+    }
+});
+
+// @route   DELETE /api/user/addresses/:addressId
+// @desc    Delete an address
+// @access  Private
+router.delete('/addresses/:addressId', protect, async (req, res) => {
+    try {
+        const { addressId } = req.params;
+
+        const user = await User.findById(req.user._id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const addressIndex = user.addresses.findIndex(
+            addr => addr._id.toString() === addressId
+        );
+
+        if (addressIndex === -1) {
+            return res.status(404).json({
+                success: false,
+                message: 'Address not found'
+            });
+        }
+
+        user.addresses.splice(addressIndex, 1);
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Address deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Delete address error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Server error during address deletion'
+        });
+    }
+});
+
+// @route   PUT /api/user/addresses/:addressId/primary
+// @desc    Set an address as primary
+// @access  Private
+router.put('/addresses/:addressId/primary', protect, async (req, res) => {
+    try {
+        const { addressId } = req.params;
+
+        const user = await User.findById(req.user._id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const addressIndex = user.addresses.findIndex(
+            addr => addr._id.toString() === addressId
+        );
+
+        if (addressIndex === -1) {
+            return res.status(404).json({
+                success: false,
+                message: 'Address not found'
+            });
+        }
+
+        // Unset all primary addresses
+        user.addresses.forEach(addr => {
+            addr.isPrimary = false;
+        });
+
+        // Set selected address as primary
+        user.addresses[addressIndex].isPrimary = true;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Primary address updated successfully'
+        });
+
+    } catch (error) {
+        console.error('Set primary address error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Server error during primary address update'
+        });
+    }
+});
+
 module.exports = router;
 
