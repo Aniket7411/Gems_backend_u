@@ -1,28 +1,25 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const router = express.Router();
+const { protect } = require('../middleware/auth');
 const Wishlist = require('../models/Wishlist');
 const Gem = require('../models/Gem');
-const { protect } = require('../middleware/auth');
-
-const router = express.Router();
 
 // @route   POST /api/wishlist/add
 // @desc    Add item to wishlist
 // @access  Private
-router.post('/add', protect, [
-    body('gemId').isMongoId().withMessage('Valid gem ID is required')
-], async (req, res) => {
+router.post('/add', protect, async (req, res) => {
     try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
+        const { gemId } = req.body;
+        const userId = req.user._id || req.user.id;
+
+        console.log('Add to wishlist:', { userId, gemId });
+
+        if (!gemId) {
             return res.status(400).json({
                 success: false,
-                message: 'Validation failed',
-                errors: errors.array()
+                message: 'Gem ID is required'
             });
         }
-
-        const { gemId } = req.body;
 
         // Check if gem exists
         const gem = await Gem.findById(gemId);
@@ -34,36 +31,43 @@ router.post('/add', protect, [
         }
 
         // Find or create wishlist
-        let wishlist = await Wishlist.findOne({ user: req.user._id });
+        let wishlist = await Wishlist.findOne({ user: userId });
 
         if (!wishlist) {
             wishlist = new Wishlist({
-                user: req.user._id,
-                gems: [gemId]
+                user: userId,
+                items: [{ gem: gemId }]
             });
         } else {
-            // Check if gem already in wishlist
-            if (wishlist.gems.includes(gemId)) {
+            // Check if already exists
+            const exists = wishlist.items.some(
+                item => item.gem.toString() === gemId
+            );
+
+            if (exists) {
                 return res.status(400).json({
                     success: false,
                     message: 'Item already in wishlist'
                 });
             }
-            wishlist.gems.push(gemId);
+
+            wishlist.items.push({ gem: gemId });
         }
 
         await wishlist.save();
 
-        res.json({
+        res.status(200).json({
             success: true,
-            message: 'Item added to wishlist'
+            message: 'Item added to wishlist',
+            wishlist: wishlist
         });
 
     } catch (error) {
-        console.error('Add to wishlist error:', error);
+        console.error('Error adding to wishlist:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error during adding to wishlist'
+            message: 'Failed to add item to wishlist',
+            error: error.message
         });
     }
 });
@@ -73,26 +77,37 @@ router.post('/add', protect, [
 // @access  Private
 router.get('/', protect, async (req, res) => {
     try {
-        const wishlist = await Wishlist.findOne({ user: req.user._id })
-            .populate('gems', 'name hindiName price heroImage category availability stock');
+        const userId = req.user._id || req.user.id;
+
+        const wishlist = await Wishlist.findOne({ user: userId })
+            .populate({
+                path: 'items.gem',
+                select: 'name hindiName price discount discountType heroImage category sizeWeight sizeUnit stock availability'
+            });
 
         if (!wishlist) {
-            return res.json({
+            return res.status(200).json({
                 success: true,
-                wishlist: []
+                items: [],
+                message: 'Wishlist is empty'
             });
         }
 
-        res.json({
+        // Filter out deleted gems
+        const validItems = wishlist.items.filter(item => item.gem !== null);
+
+        res.status(200).json({
             success: true,
-            wishlist: wishlist.gems
+            items: validItems,
+            totalItems: validItems.length
         });
 
     } catch (error) {
-        console.error('Get wishlist error:', error);
+        console.error('Error fetching wishlist:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error during wishlist retrieval'
+            message: 'Failed to fetch wishlist',
+            error: error.message
         });
     }
 });
@@ -103,8 +118,9 @@ router.get('/', protect, async (req, res) => {
 router.delete('/remove/:gemId', protect, async (req, res) => {
     try {
         const { gemId } = req.params;
+        const userId = req.user._id || req.user.id;
 
-        const wishlist = await Wishlist.findOne({ user: req.user._id });
+        const wishlist = await Wishlist.findOne({ user: userId });
 
         if (!wishlist) {
             return res.status(404).json({
@@ -113,50 +129,31 @@ router.delete('/remove/:gemId', protect, async (req, res) => {
             });
         }
 
-        wishlist.gems = wishlist.gems.filter(id => id.toString() !== gemId);
+        const initialLength = wishlist.items.length;
+        wishlist.items = wishlist.items.filter(
+            item => item.gem.toString() !== gemId
+        );
+
+        if (wishlist.items.length === initialLength) {
+            return res.status(404).json({
+                success: false,
+                message: 'Item not found in wishlist'
+            });
+        }
+
         await wishlist.save();
 
-        res.json({
+        res.status(200).json({
             success: true,
             message: 'Item removed from wishlist'
         });
 
     } catch (error) {
-        console.error('Remove from wishlist error:', error);
+        console.error('Error removing from wishlist:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error during wishlist removal'
-        });
-    }
-});
-
-// @route   DELETE /api/wishlist/clear
-// @desc    Clear entire wishlist
-// @access  Private
-router.delete('/clear', protect, async (req, res) => {
-    try {
-        const wishlist = await Wishlist.findOne({ user: req.user._id });
-
-        if (!wishlist) {
-            return res.status(404).json({
-                success: false,
-                message: 'Wishlist not found'
-            });
-        }
-
-        wishlist.gems = [];
-        await wishlist.save();
-
-        res.json({
-            success: true,
-            message: 'Wishlist cleared'
-        });
-
-    } catch (error) {
-        console.error('Clear wishlist error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during wishlist clearing'
+            message: 'Failed to remove item',
+            error: error.message
         });
     }
 });
@@ -167,21 +164,90 @@ router.delete('/clear', protect, async (req, res) => {
 router.get('/check/:gemId', protect, async (req, res) => {
     try {
         const { gemId } = req.params;
+        const userId = req.user._id || req.user.id;
 
-        const wishlist = await Wishlist.findOne({ user: req.user._id });
+        const wishlist = await Wishlist.findOne({ user: userId });
 
-        const isInWishlist = wishlist && wishlist.gems.includes(gemId);
+        if (!wishlist) {
+            return res.status(200).json({
+                success: true,
+                isInWishlist: false
+            });
+        }
 
-        res.json({
+        const isInWishlist = wishlist.items.some(
+            item => item.gem.toString() === gemId
+        );
+
+        res.status(200).json({
             success: true,
-            isInWishlist
+            isInWishlist: isInWishlist
         });
 
     } catch (error) {
-        console.error('Check wishlist error:', error);
+        console.error('Error checking wishlist:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error during wishlist check'
+            message: 'Failed to check wishlist',
+            error: error.message
+        });
+    }
+});
+
+// @route   DELETE /api/wishlist/clear
+// @desc    Clear wishlist
+// @access  Private
+router.delete('/clear', protect, async (req, res) => {
+    try {
+        const userId = req.user._id || req.user.id;
+
+        const wishlist = await Wishlist.findOne({ user: userId });
+
+        if (!wishlist) {
+            return res.status(404).json({
+                success: false,
+                message: 'Wishlist not found'
+            });
+        }
+
+        wishlist.items = [];
+        await wishlist.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Wishlist cleared'
+        });
+
+    } catch (error) {
+        console.error('Error clearing wishlist:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to clear wishlist',
+            error: error.message
+        });
+    }
+});
+
+// @route   GET /api/wishlist/count
+// @desc    Get wishlist count
+// @access  Private
+router.get('/count', protect, async (req, res) => {
+    try {
+        const userId = req.user._id || req.user.id;
+        const wishlist = await Wishlist.findOne({ user: userId });
+        const count = wishlist ? wishlist.items.length : 0;
+
+        res.status(200).json({
+            success: true,
+            count: count
+        });
+
+    } catch (error) {
+        console.error('Error getting wishlist count:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get count',
+            error: error.message
         });
     }
 });

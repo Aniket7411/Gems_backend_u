@@ -13,6 +13,10 @@ const gemSchema = new mongoose.Schema({
         trim: true,
         maxlength: [255, 'Hindi name cannot be more than 255 characters']
     },
+    alternateNames: {
+        type: [String],
+        default: []
+    },
     planet: {
         type: String,
         required: [true, 'Planet is required'],
