@@ -103,16 +103,66 @@ app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jewel_backend', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-})
-    .then(() => console.log('MongoDB connected successfully'))
-    .catch(err => {
-        console.error('MongoDB connection error:', err);
-        process.exit(1);
-    });
+// Database connection with improved error handling
+const connectDB = async () => {
+    try {
+        const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/jewel_backend';
+
+        // Set connection options
+        const options = {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 10000, // 10 seconds timeout
+            socketTimeoutMS: 45000, // 45 seconds socket timeout
+            connectTimeoutMS: 10000, // 10 seconds connection timeout
+        };
+
+        await mongoose.connect(mongoURI, options);
+        console.log('✅ MongoDB connected successfully');
+
+        // Handle connection events
+        mongoose.connection.on('error', (err) => {
+            console.error('❌ MongoDB connection error:', err.message);
+        });
+
+        mongoose.connection.on('disconnected', () => {
+            console.warn('⚠️  MongoDB disconnected. Attempting to reconnect...');
+        });
+
+        mongoose.connection.on('reconnected', () => {
+            console.log('✅ MongoDB reconnected successfully');
+        });
+
+    } catch (err) {
+        console.error('\n❌ MongoDB Connection Failed!');
+        console.error('═══════════════════════════════════════');
+
+        if (err.name === 'MongooseServerSelectionError') {
+            console.error('🔴 Error: Could not connect to MongoDB Atlas');
+            console.error('\n📋 Common Solutions:');
+            console.error('1. Check if your IP address is whitelisted in MongoDB Atlas:');
+            console.error('   → Go to: https://cloud.mongodb.com/');
+            console.error('   → Network Access → Add IP Address');
+            console.error('   → Add "0.0.0.0/0" for all IPs (development only)');
+            console.error('   → Or add your current IP address');
+            console.error('\n2. Verify your MONGODB_URI in .env file is correct');
+            console.error('3. Check if your MongoDB Atlas cluster is running');
+            console.error('4. Verify your database username and password');
+            console.error('\n💡 For local development, you can use:');
+            console.error('   MONGODB_URI=mongodb://localhost:27017/jewel_backend');
+        } else {
+            console.error('Error details:', err.message);
+        }
+
+        console.error('═══════════════════════════════════════\n');
+
+        // Don't exit immediately - allow server to start but show health check will fail
+        console.warn('⚠️  Server will start but database operations will fail until connection is established.\n');
+    }
+};
+
+// Connect to database
+connectDB();
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -130,9 +180,21 @@ console.log("testing");
 
 // Health check route
 app.get('/api/health', (req, res) => {
+    const dbStatus = mongoose.connection.readyState;
+    const dbStates = {
+        0: 'disconnected',
+        1: 'connected',
+        2: 'connecting',
+        3: 'disconnecting'
+    };
+
     res.json({
-        success: true,
+        success: dbStatus === 1,
         message: 'Server is running',
+        database: {
+            status: dbStates[dbStatus] || 'unknown',
+            connected: dbStatus === 1
+        },
         timestamp: new Date().toISOString()
     });
 });

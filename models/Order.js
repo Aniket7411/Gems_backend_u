@@ -97,6 +97,10 @@ const orderSchema = new mongoose.Schema({
         enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
         default: 'pending'
     },
+    trackingNumber: {
+        type: String,
+        trim: true
+    },
     cancelReason: {
         type: String,
         trim: true
