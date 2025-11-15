@@ -11,15 +11,33 @@ const router = express.Router();
 // @access  Private (Seller)
 router.post('/', protect, checkRole('seller'), [
     body('name').trim().notEmpty().withMessage('Name is required'),
+    body('category').trim().notEmpty().withMessage('Category is required'),
     body('hindiName').trim().notEmpty().withMessage('Hindi name is required'),
     body('planet').trim().notEmpty().withMessage('Planet is required'),
+    body('planetHindi').trim().notEmpty().withMessage('Planet Hindi is required'),
     body('color').trim().notEmpty().withMessage('Color is required'),
     body('description').trim().notEmpty().withMessage('Description is required'),
     body('benefits').isArray({ min: 1 }).withMessage('At least one benefit is required'),
     body('suitableFor').isArray({ min: 1 }).withMessage('Suitable for information is required'),
-    body('price').isNumeric().isFloat({ min: 0 }).withMessage('Valid price is required'),
+    body('contactForPrice').optional().isBoolean().withMessage('contactForPrice must be a boolean'),
+    body('price')
+        .custom((value, { req }) => {
+            const contactForPrice = req.body.contactForPrice === true || req.body.contactForPrice === 'true';
+            if (contactForPrice) {
+                // price can be null/undefined when contactForPrice is true
+                return true;
+            }
+            if (value === undefined || value === null) {
+                throw new Error('Valid price is required when contactForPrice is false');
+            }
+            const num = Number(value);
+            if (Number.isNaN(num) || num < 0) {
+                throw new Error('Valid price is required');
+            }
+            return true;
+        }),
     body('sizeWeight').isNumeric().isFloat({ min: 0 }).withMessage('Valid size/weight is required'),
-    body('sizeUnit').isIn(['carat', 'gram', 'ounce']).withMessage('Valid size unit is required'),
+    body('sizeUnit').isIn(['carat', 'gram', 'ounce', 'ratti']).withMessage('Valid size unit is required'),
     body('certification').trim().notEmpty().withMessage('Certification is required'),
     body('origin').trim().notEmpty().withMessage('Origin is required'),
     body('deliveryDays').isInt({ min: 1 }).withMessage('Valid delivery days required'),
@@ -35,6 +53,15 @@ router.post('/', protect, checkRole('seller'), [
             });
         }
 
+        // Normalize booleans
+        if (typeof req.body.contactForPrice === 'string') {
+            req.body.contactForPrice = req.body.contactForPrice === 'true';
+        }
+        // If contactForPrice is true, ensure price is null
+        if (req.body.contactForPrice === true) {
+            req.body.price = null;
+        }
+
         const gemData = { ...req.body, seller: req.user._id };
         const gem = new Gem(gemData);
         await gem.save();
@@ -46,6 +73,8 @@ router.post('/', protect, checkRole('seller'), [
                 _id: gem._id,
                 name: gem.name,
                 hindiName: gem.hindiName,
+                category: gem.category,
+                contactForPrice: gem.contactForPrice,
                 price: gem.price,
                 heroImage: gem.heroImage,
                 seller: gem.seller,
@@ -103,8 +132,8 @@ router.get('/', async (req, res) => {
         // 2. CATEGORY FILTER (multiple categories comma-separated)
         if (category) {
             const categories = category.split(',').map(cat => cat.trim());
-            // Search in name field (gem names are like "Ruby", "Emerald", etc.)
-            query.name = { $in: categories };
+            // Filter by category field (frontend maps Gem Name to this)
+            query.category = { $in: categories };
         }
 
         // 3. ZODIAC FILTER (searches in suitableFor array)
@@ -122,6 +151,8 @@ router.get('/', async (req, res) => {
             query.price = {};
             if (minPrice) query.price.$gte = Number(minPrice);
             if (maxPrice) query.price.$lte = Number(maxPrice);
+            // Exclude contact-for-price items from numeric price filters
+            query.contactForPrice = false;
         }
 
         // 6. SELLER FILTER
@@ -152,10 +183,12 @@ router.get('/', async (req, res) => {
                 sortOption.createdAt = 1; // Ascending (oldest first)
                 break;
             case 'price-low':
-                sortOption.price = 1; // Low to High
+                // Push contactForPrice items to the end while sorting by price
+                sortOption = { contactForPrice: 1, price: 1 };
                 break;
             case 'price-high':
-                sortOption.price = -1; // High to Low
+                // Push contactForPrice items to the end while sorting by price
+                sortOption = { contactForPrice: 1, price: -1 };
                 break;
             case 'name':
                 sortOption.name = 1; // A-Z
@@ -252,16 +285,71 @@ router.get('/', async (req, res) => {
 });
 
 // @route   GET /api/gems/categories
-// @desc    Get unique gem categories/names for filter dropdown (PUBLIC)
+// @desc    Get predefined gem categories (PUBLIC)
 // @access  Public
 router.get('/categories', async (req, res) => {
     try {
-        // Get distinct gem names (these act as categories)
-        const categories = await Gem.distinct('name');
+        // Updated categories list (flat array)
+        const categories = [
+            // Navratna
+            'Blue Sapphire (Neelam)',
+            'Yellow Sapphire (Pukhraj)',
+            'Ruby (Manik)',
+            'Emerald (Panna)',
+            'Diamond (Heera)',
+            'Pearl (Moti)',
+            'Cat\'s Eye (Lehsunia)',
+            'Hessonite (Gomed)',
+            'Coral (Moonga)',
+            // Exclusive Gemstones
+            'Alexandrite',
+            'Basra Pearl',
+            'Burma Ruby',
+            'Colombian Emerald',
+            'Cornflower Blue Sapphire',
+            'Kashmir Blue Sapphire',
+            'No-Oil Emerald',
+            'Padparadscha Sapphire',
+            'Panjshir Emerald',
+            'Swat Emerald',
+            'Pigeon Blood Ruby',
+            'Royal Blue Sapphire',
+            // Sapphire
+            'Sapphire',
+            'Bi-Colour Sapphire (Pitambari)',
+            'Color Change Sapphire',
+            'Green Sapphire',
+            'Pink Sapphire',
+            'Padparadscha Sapphire',
+            'Peach Sapphire',
+            'Purple Sapphire (Khooni Neelam)',
+            'White Sapphire',
+            // More Vedic Ratna (Upratan)
+            'Amethyst',
+            'Aquamarine',
+            'Blue Topaz',
+            'Citrine Stone (Sunela)',
+            'Tourmaline',
+            'Opal',
+            'Tanzanite',
+            'Iolite (Neeli)',
+            'Jasper (Mahe Mariyam)',
+            'Lapis',
+            // Legacy categories (for backward compatibility)
+            'Emerald',
+            'Ruby',
+            'Pearl',
+            'Red Coral',
+            'Gomed (Hessonite)',
+            'Diamond',
+            'Cat\'s Eye',
+            'Moonstone',
+            'Turquoise'
+        ];
 
         res.json({
             success: true,
-            data: categories.sort()
+            data: categories
         });
 
     } catch (error) {
@@ -441,9 +529,13 @@ router.get('/:id', async (req, res) => {
         };
 
         // Build query for related products with priority
-        const priceRange = gem.price * 0.3; // 30% price range
-        const minPrice = gem.price - priceRange;
-        const maxPrice = gem.price + priceRange;
+        let priceCriteria = null;
+        if (gem.price !== null && gem.price !== undefined) {
+            const priceRange = gem.price * 0.3; // 30% price range
+            const minPrice = gem.price - priceRange;
+            const maxPrice = gem.price + priceRange;
+            priceCriteria = { price: { $gte: minPrice, $lte: maxPrice } };
+        }
 
         // Try to find related products with multiple criteria
         let relatedProducts = await Gem.find({
@@ -452,7 +544,7 @@ router.get('/:id', async (req, res) => {
                 { name: gem.name }, // Same gem name (highest priority)
                 { planet: gem.planet }, // Same planet
                 { color: gem.color }, // Same color
-                { price: { $gte: minPrice, $lte: maxPrice } } // Similar price range
+                ...(priceCriteria ? [priceCriteria] : [])
             ]
         })
             .populate('seller', 'name email phone')
@@ -470,7 +562,7 @@ router.get('/:id', async (req, res) => {
                 .sort({ createdAt: -1 })
                 .limit(8 - relatedProducts.length)
                 .lean();
-            
+
             relatedProducts = [...relatedProducts, ...additionalProducts];
         }
 
@@ -553,8 +645,35 @@ router.get('/:id', async (req, res) => {
 // @route   PUT /api/gems/:id
 // @desc    Update gem (SELLER ONLY - Own gems)
 // @access  Private (Seller)
-router.put('/:id', protect, checkRole('seller'), async (req, res) => {
+router.put('/:id', protect, checkRole('seller'), [
+    body('contactForPrice').optional().isBoolean().withMessage('contactForPrice must be a boolean'),
+    body('price')
+        .optional({ nullable: true })
+        .custom((value, { req }) => {
+            const contactForPrice = req.body.contactForPrice === true || req.body.contactForPrice === 'true';
+            if (contactForPrice) {
+                return true; // allow null/undefined
+            }
+            if (value === undefined || value === null) {
+                throw new Error('Valid price is required when contactForPrice is false');
+            }
+            const num = Number(value);
+            if (Number.isNaN(num) || num < 0) {
+                throw new Error('Valid price is required');
+            }
+            return true;
+        }),
+    body('sizeUnit').optional().isIn(['carat', 'gram', 'ounce', 'ratti']).withMessage('Valid size unit is required')
+], async (req, res) => {
     try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
         // Find gem and check ownership
         const gem = await Gem.findById(req.params.id);
 
@@ -573,6 +692,15 @@ router.put('/:id', protect, checkRole('seller'), async (req, res) => {
             });
         }
 
+        // Normalize contactForPrice for update logic
+        if (typeof req.body.contactForPrice === 'string') {
+            req.body.contactForPrice = req.body.contactForPrice === 'true';
+        }
+        // If contactForPrice is true, ensure price is null
+        if (req.body.contactForPrice === true) {
+            req.body.price = null;
+        }
+
         // Update gem
         const updatedGem = await Gem.findByIdAndUpdate(
             req.params.id,
@@ -588,6 +716,14 @@ router.put('/:id', protect, checkRole('seller'), async (req, res) => {
 
     } catch (error) {
         console.error('Update gem error:', error);
+        // Handle common validation/cast errors with 400
+        if (error.name === 'ValidationError' || error.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+                errors: error.errors || undefined
+            });
+        }
         res.status(500).json({
             success: false,
             message: 'Server error during gem update'

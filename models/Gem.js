@@ -25,6 +25,7 @@ const gemSchema = new mongoose.Schema({
     },
     planetHindi: {
         type: String,
+        required: [true, 'Planet Hindi is required'],
         trim: true,
         maxlength: [100, 'Planet Hindi name cannot be more than 100 characters']
     },
@@ -51,8 +52,63 @@ const gemSchema = new mongoose.Schema({
     },
     category: {
         type: String,
+        required: [true, 'Category is required'],
         trim: true,
-        maxlength: [100, 'Category cannot be more than 100 characters']
+        enum: [
+            // Navratna
+            'Blue Sapphire (Neelam)',
+            'Yellow Sapphire (Pukhraj)',
+            'Ruby (Manik)',
+            'Emerald (Panna)',
+            'Diamond (Heera)',
+            'Pearl (Moti)',
+            'Cat\'s Eye (Lehsunia)',
+            'Hessonite (Gomed)',
+            'Coral (Moonga)',
+            // Exclusive Gemstones
+            'Alexandrite',
+            'Basra Pearl',
+            'Burma Ruby',
+            'Colombian Emerald',
+            'Cornflower Blue Sapphire',
+            'Kashmir Blue Sapphire',
+            'No-Oil Emerald',
+            'Padparadscha Sapphire',
+            'Panjshir Emerald',
+            'Swat Emerald',
+            'Pigeon Blood Ruby',
+            'Royal Blue Sapphire',
+            // Sapphire
+            'Sapphire',
+            'Bi-Colour Sapphire (Pitambari)',
+            'Color Change Sapphire',
+            'Green Sapphire',
+            'Pink Sapphire',
+            'Peach Sapphire',
+            'Purple Sapphire (Khooni Neelam)',
+            'White Sapphire',
+            // More Vedic Ratna (Upratan)
+            'Amethyst',
+            'Aquamarine',
+            'Blue Topaz',
+            'Citrine Stone (Sunela)',
+            'Tourmaline',
+            'Opal',
+            'Tanzanite',
+            'Iolite (Neeli)',
+            'Jasper (Mahe Mariyam)',
+            'Lapis',
+            // Legacy categories (for backward compatibility)
+            'Emerald',
+            'Ruby',
+            'Pearl',
+            'Red Coral',
+            'Gomed (Hessonite)',
+            'Diamond',
+            'Cat\'s Eye',
+            'Moonstone',
+            'Turquoise'
+        ]
     },
     whomToUse: {
         type: [String],
@@ -60,8 +116,15 @@ const gemSchema = new mongoose.Schema({
     },
     price: {
         type: Number,
-        required: [true, 'Price is required'],
-        min: [0, 'Price cannot be negative']
+        // Do not use Mongoose 'required' for updates; enforce via hooks instead
+        required: false,
+        min: [0, 'Price cannot be negative'],
+        default: null
+    },
+    contactForPrice: {
+        type: Boolean,
+        default: false,
+        required: [true, 'contactForPrice is required']
     },
     discount: {
         type: Number,
@@ -81,7 +144,7 @@ const gemSchema = new mongoose.Schema({
     sizeUnit: {
         type: String,
         required: [true, 'Size unit is required'],
-        enum: ['carat', 'gram', 'ounce'],
+        enum: ['carat', 'gram', 'ounce', 'ratti'],
         default: 'carat'
     },
     stock: {
@@ -156,6 +219,17 @@ const gemSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Validation rules for contactForPrice/price coordination
+gemSchema.pre('validate', function (next) {
+    if (this.contactForPrice) {
+        this.price = null;
+    }
+    if (!this.contactForPrice && (this.price === undefined || this.price === null || this.price <= 0)) {
+        return next(new Error('Price is required and must be > 0 when contactForPrice is false'));
+    }
+    next();
+});
+
 // Automatic availability update based on stock
 gemSchema.pre('save', function (next) {
     if (this.stock === 0) {
@@ -163,6 +237,44 @@ gemSchema.pre('save', function (next) {
     } else if (this.stock > 0 && !this.availability) {
         this.availability = true;
     }
+    next();
+});
+
+// Ensure updates respect contactForPrice/price rules
+gemSchema.pre('findOneAndUpdate', function (next) {
+    const update = this.getUpdate() || {};
+    const setObject = update.$set || update;
+    const unsetObject = update.$unset || {};
+
+    const contactForPriceIncoming = setObject.contactForPrice;
+    const isContactForPriceTrue = contactForPriceIncoming === true || contactForPriceIncoming === 'true';
+    const isContactForPriceFalse = contactForPriceIncoming === false || contactForPriceIncoming === 'false';
+
+    if (isContactForPriceTrue) {
+        // Force price to null if contactForPrice is true
+        if (update.$set) {
+            update.$set.price = null;
+        } else {
+            setObject.price = null;
+        }
+    } else if (isContactForPriceFalse) {
+        // If explicitly turning off contactForPrice ensure price is provided and > 0 (unless explicitly unset which is invalid)
+        const priceProvided = Object.prototype.hasOwnProperty.call(setObject, 'price');
+        const priceUnset = Object.prototype.hasOwnProperty.call(unsetObject, 'price');
+        if (!priceProvided && !priceUnset) {
+            return next(new Error('Price is required and must be > 0 when contactForPrice is false'));
+        }
+        if (priceProvided) {
+            const num = Number(setObject.price);
+            if (Number.isNaN(num) || num <= 0) {
+                return next(new Error('Price is required and must be > 0 when contactForPrice is false'));
+            }
+        }
+        if (priceUnset) {
+            return next(new Error('Price cannot be unset when contactForPrice is false'));
+        }
+    }
+
     next();
 });
 
@@ -177,6 +289,7 @@ gemSchema.index({ planet: 1 }); // Planet filter
 gemSchema.index({ color: 1 }); // Color filter
 gemSchema.index({ price: 1 }); // Price sorting
 gemSchema.index({ availability: 1 }); // Availability filter
+gemSchema.index({ contactForPrice: 1 }); // Contact-for-price filter
 gemSchema.index({ seller: 1 }); // Seller filter
 gemSchema.index({ createdAt: -1 }); // Newest first sorting
 gemSchema.index({ stock: 1 }); // Stock filter
